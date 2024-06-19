@@ -1,11 +1,14 @@
 import fire
 import os
-import sys
+import json
 import time
 
 import torch
 from transformers import AutoTokenizer
+from tqdm import tqdm
+
 from model_utils import load_model
+from alpaca_dataset import load_alpaca_dataset
 
 def main(
     model_name,
@@ -25,6 +28,9 @@ def main(
     max_padding_length: int=None, # the max padding length to be used with tokenizer padding the prompts.
     use_fast_kernels: bool = False, # Enable using SDPA from PyTroch Accelerated Transformers, make use Flash Attention and Xformer memory-efficient kernels
     use_gpu: bool = False,
+    use_alpaca_dataset: bool = False, # use alpaca eval dataset instead of prompt file
+    num_generations: int=1, 
+    return_hidden_states: bool=False, # return hidden states from the model as per INSIDE score.
     **kwargs
 ): 
     def inference(user_prompt, temperature, top_p, top_k, max_new_tokens, **kwargs,):
@@ -47,42 +53,64 @@ def main(
         if use_gpu:
             batch = {k: v.to('cuda') for k, v in batch.items()}
 
+        outputs = []
         start_time = time.perf_counter()
-        with torch.no_grad():
-            outputs = model.generate(
-                **batch,
-                max_new_tokens=max_new_tokens,
-                do_sample=do_sample,
-                top_p=top_p,
-                temperature=temperature,
-                min_length=min_length,
-                use_cache=use_cache,
-                top_k=top_k,
-                repetition_penalty=repetition_penalty,
-                length_penalty=length_penalty,
-                output_hidden_states=True, 
-                return_dict_in_generate=True
-            )
+        for _ in range(num_generations):
+            with torch.no_grad():
+                output = model.generate(
+                    **batch,
+                    max_new_tokens=max_new_tokens,
+                    do_sample=do_sample,
+                    top_p=top_p,
+                    temperature=temperature,
+                    min_length=min_length,
+                    use_cache=use_cache,
+                    top_k=top_k,
+                    repetition_penalty=repetition_penalty,
+                    length_penalty=length_penalty,
+                    output_hidden_states=True, 
+                    return_dict_in_generate=True
+                )
+
+            generated_tokens = output.sequences
+            decoded_output = tokenizer.decode(generated_tokens[0], skip_special_tokens=True)
+            outputs.append(decoded_output)
+        
+            if return_hidden_states:
+                hidden_states = outputs.hidden_states
+
+                # grab the embeddings of the final token (represents sentence embedding)
+                hidden_states = hidden_states[-1]
+                middle_layer_index = (len(hidden_states) + 1) // 2 # +1 to account for input embeddings as per https://huggingface.co/docs/transformers/en/main_classes/output#transformers.modeling_outputs.BaseModelOutput
+                middle_layer_hidden_states = hidden_states[middle_layer_index]
+                print("Middle layer hidden states:", middle_layer_hidden_states.squeeze().size())
+        
         e2e_inference_time = (time.perf_counter() - start_time)*1000 
         print(f"End-to-end inference time: {e2e_inference_time:.2f} ms") 
 
-        generated_tokens = outputs.sequences
-        decoded_output = tokenizer.decode(generated_tokens[0], skip_special_tokens=True)
-        print("Generated Output:", decoded_output)
+        return outputs
 
-        hidden_states = outputs.hidden_states
+    if use_alpaca_dataset:
+        alpaca_dataset = load_alpaca_dataset()
+        print(alpaca_dataset)
+        results = []
+        for instruction in tqdm(alpaca_dataset['instruction'], desc="Generating outputs from Alpaca dataset"):
+            outputs = inference(instruction, temperature, top_p, top_k, max_new_tokens)
+            results.append({
+                'instruction': instruction,
+                'outputs': outputs,
+            })
 
-        # grab the embeddings of the final token (represents sentence embedding)
-        hidden_states = hidden_states[-1]
-        middle_layer_index = (len(hidden_states) + 1) // 2 # +1 to account for input embeddings as per https://huggingface.co/docs/transformers/en/main_classes/output#transformers.modeling_outputs.BaseModelOutput
-        middle_layer_hidden_states = hidden_states[middle_layer_index]
-        print("Middle layer hidden states:", middle_layer_hidden_states.squeeze().size())
-        
-    if prompt_file is not None: 
+        with open('alpaca_results.json', 'w') as f:
+            json.dump(results, f, indent=4)
+        print("Results saved to alpaca_results.json")
+
+    elif prompt_file is not None: 
         assert os.path.exists(prompt_file), f"Prompt file {prompt_file} not found."
         with open(prompt_file, 'r') as f:
             user_prompt = "\n".join(f.readlines())
-        inference(user_prompt, temperature, top_p, top_k, max_new_tokens)
+        outputs = inference(user_prompt, temperature, top_p, top_k, max_new_tokens)
+        print(outputs[0])
 
 if __name__ == "__main__":
     fire.Fire(main) 
