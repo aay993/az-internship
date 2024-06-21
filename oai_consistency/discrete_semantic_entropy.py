@@ -36,7 +36,6 @@ def generate_se_plots(output_file='semantic_entropy_plot.png'):
     fig.suptitle('Semantic Entropy (SE) Analysis')
 
     for idx, num_clusters in enumerate(num_clusters_list):
-        # Plot for uniform distribution
         se_values = [discrete_semantic_entropy(dist) for dist in uniform_distributions[num_clusters]]
         axs[0, idx].bar(range(len(se_values)), se_values, color='b')
         axs[0, idx].set_title(f'Uniform - {num_clusters} Clusters')
@@ -45,7 +44,6 @@ def generate_se_plots(output_file='semantic_entropy_plot.png'):
         axs[0, idx].set_xticks(range(len(se_values)))
         axs[0, idx].set_xticklabels([str(dist) for dist in uniform_distributions[num_clusters]], rotation=45)
 
-        # Plot for skewed distribution
         se_values = [discrete_semantic_entropy(dist) for dist in skewed_distributions[num_clusters]]
         axs[1, idx].bar(range(len(se_values)), se_values, color='r')
         axs[1, idx].set_title(f'Skewed - {num_clusters} Clusters')
