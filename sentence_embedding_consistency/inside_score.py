@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import torch 
 import ast
+import fire 
 
 
 def load_pandas_data(path='/app/data/human_arm_with_embeddings_20'): 
@@ -40,12 +41,16 @@ def compute_eigen_score(covariance_matrix):
     K = eigenvalues.size()[0]
     eigen_score = (1/K) * torch.sum(torch.log(eigenvalues))
 
-    return eigen_score
-    
-if __name__ == '__main__':
-    df = load_pandas_data()
+    return eigen_score 
+
+def main(path: str = '/Users/kqbg611/Documents/data/human_arm_with_embeddings_20'): 
+    df = load_pandas_data(path)
     embeddings = create_embedding_matrix(df)
     covariance_matrix = compute_covariance_matrix(embeddings)
     covariance_matrix = regularise_covariance_matrix(covariance_matrix)
     print(compute_eigen_score(covariance_matrix))
+
+    
+if __name__ == '__main__':
+    fire.Fire(main)
 
