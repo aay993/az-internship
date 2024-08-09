@@ -180,7 +180,9 @@ def generate_with_references(
     max_tokens=2048,
     temperature=0.7,
     generate_fn=generate_together,
-    reference_models=None
+    reference_models=None, 
+    save_model_usage=True, 
+    save_model_usage_path='outputs/filter'
 ):
 
     if len(references) > 0:
@@ -201,19 +203,19 @@ def generate_with_references(
                     'divergence_score': divergence_scores[i]
                 }
                 all_models_info.append(model_info)
+            
+            if save_model_usage:
+                if not os.path.exists(save_model_usage_path):
+                    os.makedirs(save_model_usage_path)
 
-            if not os.path.exists('outputs/filter'):
-                os.makedirs('outputs/filter')
-
-            with open(f'outputs/filter/gsm8k_{str(uuid.uuid4())}.json', 'w') as f:
-                json.dump(all_models_info, f)
+                with open(f'{save_model_usage_path}/result_{str(uuid.uuid4())}.json', 'w') as f:
+                    json.dump(all_models_info, f)
             
         except Exception as e:  
             logger.error(f'Error: {e}')
             return None
         
         messages = inject_references_to_messages(messages, references)
-        print('')
 
     return generate_fn(
         model=model,
